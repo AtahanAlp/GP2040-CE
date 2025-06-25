@@ -137,6 +137,7 @@ private:
     void loadConfig(); // Helper to load settings from BoardConfig/defines
 
     // MUX control and reading
+    void readAllMuxChannels();
     void selectMuxChannel(uint8_t channel);
     uint16_t readMuxChannel(uint8_t channel); // Selects and reads a single channel
 
@@ -149,6 +150,7 @@ private:
     void applyTriggerDeadzoneAndScale(analog_mux_trigger_instance &trigger);
 
     // Member Variables
+    uint16_t channel_values[16];  // Array to store the latest reading for each channel
     Pin_t mux_select_pins[3]; // Store configured S0, S1, S2 pins (expand if needed)
     uint8_t mux_select_pin_count; // How many select pins are actually used
     Pin_t mux_output_pin;         // The GPIO pin number for MUX output

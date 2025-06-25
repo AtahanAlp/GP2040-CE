@@ -27,32 +27,25 @@ bool AnalogMuxInput::available() {
     #endif
 }
 
-// Setup the addon
-void AnalogMuxInput::setup() {
-    is_initialized = false; // Assume failure until proven otherwise
 
-    // Load configuration from defines into member variables and structs
+void AnalogMuxInput::setup() {
+    is_initialized = false; 
+
     loadConfig();
 
-    // Initialize GPIO pins for MUX select lines
     if (!setupMuxPins()) {
-        // Optionally log an error here
-        return; // Failed to setup MUX pins
+        return;
     }
 
-    // Initialize the ADC pin connected to the MUX output
     if (!setupAdc()) {
-        // Optionally log an error here
-        return; // Failed to setup ADC
+        return;
     }
 
-    // If we reached here, setup was successful
     is_initialized = true;
 }
 
-// Load configuration from header defines
+
 void AnalogMuxInput::loadConfig() {
-    // Store MUX select pins
     mux_select_pins[0] = ANALOG_MUX_S0_PIN;
     mux_select_pins[1] = ANALOG_MUX_S1_PIN;
     mux_select_pins[2] = ANALOG_MUX_S2_PIN;
@@ -64,8 +57,6 @@ void AnalogMuxInput::loadConfig() {
             // Use the highest index + 1, assuming contiguous pins are defined (S0, S1, S2...)
             mux_select_pin_count = static_cast<int>(i) + 1;
         } else {
-            // Stop counting at the first invalid pin in the sequence
-            // Or, if non-contiguous pins are allowed, adjust logic
             break;
         }
     }
@@ -110,7 +101,6 @@ void AnalogMuxInput::loadConfig() {
     stick_outer_deadzone_scaled = (DEFAULT_OUTER_DEADZONE / 100.0f) * ANALOG_CENTER_FLOAT;
 }
 
-// Initialize MUX select GPIO pins
 bool AnalogMuxInput::setupMuxPins() {
     for (int i = 0; i < mux_select_pin_count; ++i) {
         Pin_t pin = mux_select_pins[i];
@@ -125,7 +115,6 @@ bool AnalogMuxInput::setupMuxPins() {
     return true;
 }
 
-// Initialize ADC for MUX output pin
 bool AnalogMuxInput::setupAdc() {
     if (!isValidPin(mux_output_pin)) {
         // Log error: Invalid MUX output pin defined
@@ -146,28 +135,26 @@ bool AnalogMuxInput::setupAdc() {
 }
 
 
-// Main process loop called by the system
 void AnalogMuxInput::process() {
-    // Don't run if not initialized or not enabled
     if (!is_initialized || !available()) {
         return;
     }
 
-    // Get the gamepad state object
+    // --- Part 1: Read all active MUX channels in a tight, fast loop ---
+    readAllMuxChannels();
+
+    // --- Part 2: Process all inputs using the fresh, stored values ---
     Gamepad *gamepad = Storage::getInstance().GetGamepad();
     if (!gamepad) {
-        return; // Should not happen, but safety check
-    }
-
-    // Determine the joystick center value based on the current driver
-    uint16_t joystickMid = GAMEPAD_JOYSTICK_MID; // Default GP2040-CE center (0x8000)
-    if (DriverManager::getInstance().getDriver() != nullptr) {
-        joystickMid = DriverManager::getInstance().getDriver()->GetJoystickMidValue(); // Get driver specific center (e.g., 0x7FFF for XInput)
+        return;
     }
 
     // Process Joysticks
     for (int i = 0; i < ANALOG_MUX_JOYSTICK_COUNT; ++i) {
-        processStick(sticks[i]); // Read raw values and apply deadzone/scaling
+        if (sticks[i].x_channel >= 0) sticks[i].x_raw = channel_values[sticks[i].x_channel];
+        if (sticks[i].y_channel >= 0) sticks[i].y_raw = channel_values[sticks[i].y_channel];
+
+        applyStickDeadzoneAndScale(sticks[i]); // apply deadzone/scaling
 
         // Map processed float value (0.0 to 1.0) to gamepad uint16_t range (0 to 65535)
         uint16_t mapped_x = static_cast<uint16_t>(sticks[i].x_value * 65535.0f);
@@ -188,7 +175,9 @@ void AnalogMuxInput::process() {
     // Enable analog triggers as per documentation
     gamepad->hasAnalogTriggers = true;
     for (int i = 0; i < ANALOG_MUX_TRIGGER_COUNT; ++i) {
-        processTrigger(triggers[i]); // Read raw value and apply deadzone/scaling
+        if (triggers[i].channel >= 0) triggers[i].raw = channel_values[triggers[i].channel];
+
+        applyTriggerDeadzoneAndScale(triggers[i]); // apply deadzone/scaling
 
         // Map processed float value (0.0 to 1.0) to gamepad uint8_t range (0 to 255)
         uint8_t mapped_trigger = static_cast<uint8_t>(triggers[i].value * 255.0f);
@@ -202,7 +191,6 @@ void AnalogMuxInput::process() {
     }
 }
 
-// Read and process a single joystick
 void AnalogMuxInput::processStick(analog_mux_stick_instance &stick) {
     // Read X-axis raw value if channel is valid
     if (stick.x_channel >= 0) {
@@ -222,7 +210,6 @@ void AnalogMuxInput::processStick(analog_mux_stick_instance &stick) {
     applyStickDeadzoneAndScale(stick);
 }
 
-// Read and process a single trigger
 void AnalogMuxInput::processTrigger(analog_mux_trigger_instance &trigger) {
     // Read raw value if channel is valid
     if (trigger.channel >= 0) {
@@ -235,18 +222,6 @@ void AnalogMuxInput::processTrigger(analog_mux_trigger_instance &trigger) {
     applyTriggerDeadzoneAndScale(trigger);
 }
 
-// Set the MUX select lines to choose a specific channel
-void AnalogMuxInput::selectMuxChannel(uint8_t channel) {
-    if (!is_initialized) return; // Don't operate if pins aren't setup
-
-    for (int i = 0; i < mux_select_pin_count; ++i) {
-        gpio_put(mux_select_pins[i], (channel >> i) & 1); // Set S0, S1, S2... based on channel bits
-    }
-    // Optional: Add a small delay here if needed for MUX settling time
-    sleep_us(100); // Example: 1 microsecond delay
-}
-
-// Select a MUX channel and read the ADC value from the output pin
 uint16_t AnalogMuxInput::readMuxChannel(uint8_t channel) {
     if (!is_initialized) return ADC_CENTER_DEFAULT; // Return center if not setup
 
@@ -255,7 +230,7 @@ uint16_t AnalogMuxInput::readMuxChannel(uint8_t channel) {
     return adc_read();                  // Perform ADC conversion and return result (0-4095)
 }
 
-// Apply deadzone and scaling for joysticks
+
 void AnalogMuxInput::applyStickDeadzoneAndScale(analog_mux_stick_instance &stick) {
     // 1. Map raw ADC values (0-4095) to a float range around 0.0 (-0.5 to +0.5)
     //    relative to the calibrated center.
@@ -320,7 +295,7 @@ void AnalogMuxInput::applyStickDeadzoneAndScale(analog_mux_stick_instance &stick
     stick.y_value = std::max(ANALOG_MIN_FLOAT, std::min(stick.y_value, ANALOG_MAX_FLOAT));
 }
 
-// Apply deadzone and scaling for triggers
+
 void AnalogMuxInput::applyTriggerDeadzoneAndScale(analog_mux_trigger_instance &trigger) {
     // Ensure min/max are valid
     uint16_t min_dead = std::min(trigger.deadzone_min, trigger.deadzone_max);
@@ -339,4 +314,41 @@ void AnalogMuxInput::applyTriggerDeadzoneAndScale(analog_mux_trigger_instance &t
 
     // Final clamp (should be redundant if logic above is correct, but safe)
     trigger.value = std::max(0.0f, std::min(trigger.value, 1.0f));
+}
+
+
+void AnalogMuxInput::readAllMuxChannels() {
+    // Select the ADC input pin ONCE at the start
+    adc_select_input(mux_adc_channel);
+
+    // Read all joystick channels
+    for (int i = 0; i < ANALOG_MUX_JOYSTICK_COUNT; ++i) {
+        if (sticks[i].x_channel >= 0) {
+            selectMuxChannel(sticks[i].x_channel);
+            sleep_us(10); // Crucial delay for settling
+            channel_values[sticks[i].x_channel] = adc_read();
+        }
+        if (sticks[i].y_channel >= 0) {
+            selectMuxChannel(sticks[i].y_channel);
+            sleep_us(10); // Crucial delay for settling
+            channel_values[sticks[i].y_channel] = adc_read();
+        }
+    }
+
+    // Read all trigger channels
+    for (int i = 0; i < ANALOG_MUX_TRIGGER_COUNT; ++i) {
+        if (triggers[i].channel >= 0) {
+            selectMuxChannel(triggers[i].channel);
+            sleep_us(10); // Crucial delay for settling
+            channel_values[triggers[i].channel] = adc_read();
+        }
+    }
+}
+
+void AnalogMuxInput::selectMuxChannel(uint8_t channel) {
+    if (!is_initialized) return;
+
+    for (int i = 0; i < mux_select_pin_count; ++i) {
+        gpio_put(mux_select_pins[i], (channel >> i) & 1);
+    }
 }

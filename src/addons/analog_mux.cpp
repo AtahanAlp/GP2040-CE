@@ -1,4 +1,4 @@
-#include "addons/analog_mux/analog_mux.h" // Include our header
+#include "addons/analog_mux.h" // Include our header
 #include "storagemanager.h"             // To access gamepad state
 #include "drivermanager.h"              // To potentially get joystick mid value
 #include "helper.h"                   // For isValidPin, potentially
@@ -12,22 +12,19 @@
 #define ADC_PIN_OFFSET 26             // GPIO pins for ADC start at 26
 #define ADC_MAX_FLOAT (float)ADC_MAX  // Float version of ADC_MAX
 #define ADC_CENTER_DEFAULT (ADC_MAX / 2 + 1) // Default center value (2048)
+#define ADC_COUNT_FOR_MUX 4                   // Number of ADC channels (0-3)
 
-// Define Analog scaling constants (output range 0.0 to 1.0)
 #define ANALOG_MAX_FLOAT 1.0f
 #define ANALOG_CENTER_FLOAT 0.5f
 #define ANALOG_MIN_FLOAT 0.0f
 
-// Check if the addon is enabled via the define in the header TODO: make it runtime configurable
-// This is a compile-time check, so it won't be affected by runtime changes in the config!!!
+
 bool AnalogMuxInput::available() {
-    // Basic check: is the addon enabled in the header?
-    // More robust checks (like ensuring pins are assigned) could be added here or in setup.
-#if ANALOG_MUX_ENABLED == 1
-    return true;
-#else
-    return false;
-#endif
+    #if ANALOG_MUX_ENABLED == 1
+        return true;
+    #else
+        return false;
+    #endif
 }
 
 // Setup the addon
@@ -62,10 +59,10 @@ void AnalogMuxInput::loadConfig() {
 
     // Determine how many select pins are actually configured
     mux_select_pin_count = 0;
-    for (int i = 0; i < (sizeof(mux_select_pins)/sizeof(mux_select_pins[0])); ++i) {
+    for (size_t i = 0; i < (sizeof(mux_select_pins)/sizeof(mux_select_pins[0])); ++i) {
         if (isValidPin(mux_select_pins[i])) {
             // Use the highest index + 1, assuming contiguous pins are defined (S0, S1, S2...)
-            mux_select_pin_count = i + 1;
+            mux_select_pin_count = static_cast<int>(i) + 1;
         } else {
             // Stop counting at the first invalid pin in the sequence
             // Or, if non-contiguous pins are allowed, adjust logic
@@ -136,7 +133,7 @@ bool AnalogMuxInput::setupAdc() {
     }
 
     // Check if the pin is ADC capable (GPIO 26-29)
-    if (mux_output_pin < ADC_PIN_OFFSET || mux_output_pin >= (ADC_PIN_OFFSET + ADC_COUNT)) {
+    if (mux_output_pin < ADC_PIN_OFFSET || mux_output_pin >= (ADC_PIN_OFFSET + ADC_COUNT_FOR_MUX)) {
          // Log error: MUX output pin is not ADC capable
         return false;
     }
@@ -188,11 +185,13 @@ void AnalogMuxInput::process() {
     }
 
     // Process Triggers
+    // Enable analog triggers as per documentation
+    gamepad->hasAnalogTriggers = true;
     for (int i = 0; i < ANALOG_MUX_TRIGGER_COUNT; ++i) {
         processTrigger(triggers[i]); // Read raw value and apply deadzone/scaling
 
-        // Map processed float value (0.0 to 1.0) to gamepad uint16_t range (0 to 65535)
-        uint16_t mapped_trigger = static_cast<uint16_t>(triggers[i].value * 65535.0f);
+        // Map processed float value (0.0 to 1.0) to gamepad uint8_t range (0 to 255)
+        uint8_t mapped_trigger = static_cast<uint8_t>(triggers[i].value * 255.0f);
 
         // Assign to correct gamepad state (index 0 = LT, index 1 = RT)
         if (i == 0) { // Left Trigger
@@ -244,7 +243,7 @@ void AnalogMuxInput::selectMuxChannel(uint8_t channel) {
         gpio_put(mux_select_pins[i], (channel >> i) & 1); // Set S0, S1, S2... based on channel bits
     }
     // Optional: Add a small delay here if needed for MUX settling time
-    sleep_us(10); // Example: 10 microsecond delay
+    sleep_us(100); // Example: 1 microsecond delay
 }
 
 // Select a MUX channel and read the ADC value from the output pin

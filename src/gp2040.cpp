@@ -29,6 +29,7 @@
 #include "addons/rotaryencoder.h"
 #include "addons/i2c_gpio_pcf8575.h"
 #include "addons/gamepad_usb_host.h"
+#include "addons/analog_mux.h"
 
 
 // Pico includes
@@ -107,6 +108,7 @@ void GP2040::setup() {
 	addons.LoadAddon(new TiltInput());
 	addons.LoadAddon(new RotaryEncoderInput());
 	addons.LoadAddon(new PCF8575Addon());
+	addons.LoadAddon(new AnalogMuxInput()); // Analog Mux Input Prototype!
 
 	// Input override addons
 	addons.LoadAddon(new ReverseInput());

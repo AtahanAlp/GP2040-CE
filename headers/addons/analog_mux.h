@@ -11,7 +11,7 @@
 
 // Master enable for this addon
 #ifndef ANALOG_MUX_ENABLED
-#define ANALOG_MUX_ENABLED 0
+#define ANALOG_MUX_ENABLED 1
 #endif
 
 // ----- MUX Configuration -----
@@ -19,39 +19,39 @@
 // GPIO pins connected to the MUX select lines (S0, S1, S2, ...). -1 means unused.
 // Order: S0 = LSB. Define as many as your MUX needs.
 #ifndef ANALOG_MUX_S0_PIN
-#define ANALOG_MUX_S0_PIN -1
+#define ANALOG_MUX_S0_PIN 00
 #endif
 #ifndef ANALOG_MUX_S1_PIN
-#define ANALOG_MUX_S1_PIN -1
+#define ANALOG_MUX_S1_PIN 01
 #endif
 #ifndef ANALOG_MUX_S2_PIN
-#define ANALOG_MUX_S2_PIN -1
+#define ANALOG_MUX_S2_PIN 15
 #endif
 
 // The ADC-capable GPIO pin connected to the MUX common output (SIG/Z).
 // Must be GPIO 26, 27, 28, or 29 (ADC0, ADC1, ADC2, or ADC3).
 #ifndef ANALOG_MUX_OUT_PIN
-#define ANALOG_MUX_OUT_PIN -1
+#define ANALOG_MUX_OUT_PIN 26
 #endif
 
 // MUX Channel assignments (0-indexed). Assign -1 if an input is not used.
 #ifndef ANALOG_MUX_LX_CHANNEL
-#define ANALOG_MUX_LX_CHANNEL -1 // Left Stick X
+#define ANALOG_MUX_LX_CHANNEL 0 // Left Stick X
 #endif
 #ifndef ANALOG_MUX_LY_CHANNEL
-#define ANALOG_MUX_LY_CHANNEL -1 // Left Stick Y
+#define ANALOG_MUX_LY_CHANNEL 1 // Left Stick Y
 #endif
 #ifndef ANALOG_MUX_RX_CHANNEL
-#define ANALOG_MUX_RX_CHANNEL -1 // Right Stick X
+#define ANALOG_MUX_RX_CHANNEL 2 // Right Stick X
 #endif
 #ifndef ANALOG_MUX_RY_CHANNEL
-#define ANALOG_MUX_RY_CHANNEL -1 // Right Stick Y
+#define ANALOG_MUX_RY_CHANNEL 3 // Right Stick Y
 #endif
 #ifndef ANALOG_MUX_LT_CHANNEL
-#define ANALOG_MUX_LT_CHANNEL -1 // Left Trigger
+#define ANALOG_MUX_LT_CHANNEL 4 // Left Trigger
 #endif
 #ifndef ANALOG_MUX_RT_CHANNEL
-#define ANALOG_MUX_RT_CHANNEL -1 // Right Trigger
+#define ANALOG_MUX_RT_CHANNEL 5 // Right Trigger
 #endif
 
 // ----- Left Stick Configuration -----

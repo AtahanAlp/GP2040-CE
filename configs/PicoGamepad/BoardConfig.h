@@ -19,8 +19,8 @@
 #define GPIO_PIN_05 GpioAction::BUTTON_PRESS_LEFT   // LEFT   | LEFT   | LEFT    | LEFT     | LEFT   | LEFT   |
 #define GPIO_PIN_06 GpioAction::BUTTON_PRESS_B1     // B1     | A      | B       | Cross    | 2      | K1     |
 #define GPIO_PIN_07 GpioAction::BUTTON_PRESS_B2     // B2     | B      | A       | Circle   | 3      | K2     |
-#define GPIO_PIN_08 GpioAction::BUTTON_PRESS_R2     // R2     | RT     | ZR      | R2       | 8      | K3     |
-#define GPIO_PIN_09 GpioAction::BUTTON_PRESS_L2     // L2     | LT     | ZL      | L2       | 7      | K4     |
+//#define GPIO_PIN_08 GpioAction::BUTTON_PRESS_R2     // R2     | RT     | ZR      | R2       | 8      | K3     |
+//#define GPIO_PIN_09 GpioAction::BUTTON_PRESS_L2     // L2     | LT     | ZL      | L2       | 7      | K4     |
 #define GPIO_PIN_10 GpioAction::BUTTON_PRESS_B3     // B3     | X      | Y       | Square   | 1      | P1     |
 #define GPIO_PIN_11 GpioAction::BUTTON_PRESS_B4     // B4     | Y      | X       | Triangle | 4      | P2     |
 #define GPIO_PIN_12 GpioAction::BUTTON_PRESS_R1     // R1     | RB     | R       | R1       | 6      | P3     |
@@ -40,11 +40,10 @@
 #define GPIO_PIN_29 GpioAction::ASSIGNED_TO_ADDON
 
 // currently not used!!
-/*
 #define GPIO_PIN_00 GpioAction::ASSIGNED_TO_ADDON
 #define GPIO_PIN_01 GpioAction::ASSIGNED_TO_ADDON
 #define GPIO_PIN_15 GpioAction::ASSIGNED_TO_ADDON
-*/
+
 
 // Keyboard Mapping Configuration
 //                                            // GP2040 | Xinput | Switch  | PS3/4/5  | Dinput | Arcade |
@@ -70,7 +69,7 @@
 
 // Analog Configuration
 //
-#define ANALOG_INPUT_ENABLED        1
+#define ANALOG_INPUT_ENABLED        0 //disable analog input for testing purposes
 #define ANALOG_ADC_1_VRX            27
 #define ANALOG_ADC_1_VRY            26
 #define ANALOG_ADC_1_MODE           DPAD_MODE_LEFT_ANALOG
@@ -82,6 +81,6 @@
 #define FORCED_CIRCULARITY_ENABLED  0
 #define DEFAULT_INNER_DEADZONE      5
 #define DEFAULT_OUTER_DEADZONE      50
-#define AUTO_CALIBRATE_ENABLED      1
+#define AUTO_CALIBRATE_ENABLED      0 //disable analog input for testing purposes
 
 #endif

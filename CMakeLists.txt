@@ -267,6 +267,7 @@ src/animationstation/effects/staticcolor.cpp
 src/animationstation/effects/statictheme.cpp
 ${PROTO_OUTPUT_DIR}/enums.pb.c
 ${PROTO_OUTPUT_DIR}/config.pb.c
+src/addons/analog_mux.cpp
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME ${PROJECT_NAME}_${CMAKE_PROJECT_VERSION}_${GP2040_BOARDCONFIG})

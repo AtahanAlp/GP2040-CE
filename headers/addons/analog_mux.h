@@ -76,10 +76,10 @@
 
 // Deadzone settings for Joysticks (percentage)
 #ifndef DEFAULT_INNER_DEADZONE
-#define DEFAULT_INNER_DEADZONE 5 // Center deadzone percentage
+#define DEFAULT_INNER_DEADZONE 8 // Center deadzone percentage
 #endif
 #ifndef DEFAULT_OUTER_DEADZONE
-#define DEFAULT_OUTER_DEADZONE 95 // Outer saturation percentage
+#define DEFAULT_OUTER_DEADZONE 3 // Outer saturation percentage
 #endif
 
 // Deadzone settings for Triggers (raw ADC values, 0-4095 range)
@@ -132,6 +132,7 @@ public:
 
 private:
     // Initialization helpers
+    void calibrateSticks();
     bool setupMuxPins();
     bool setupAdc();
     void loadConfig(); // Helper to load settings from BoardConfig/defines

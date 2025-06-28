@@ -41,7 +41,22 @@ void AnalogMuxInput::setup() {
         return;
     }
 
+    calibrateSticks();
+
     is_initialized = true;
+}
+
+void AnalogMuxInput::calibrateSticks() {
+    sleep_us(100);
+    for (int i = 0; i < ANALOG_MUX_JOYSTICK_COUNT; ++i) {
+        if (sticks[i].x_channel >= 0) {
+            sticks[i].x_center = readMuxChannel(sticks[i].x_channel);
+        }
+        sleep_us(10);
+        if (sticks[i].y_channel >= 0) {
+            sticks[i].y_center = readMuxChannel(sticks[i].y_channel);
+        }
+    }
 }
 
 
@@ -191,108 +206,80 @@ void AnalogMuxInput::process() {
     }
 }
 
-void AnalogMuxInput::processStick(analog_mux_stick_instance &stick) {
-    // Read X-axis raw value if channel is valid
-    if (stick.x_channel >= 0) {
-        stick.x_raw = readMuxChannel(stick.x_channel);
-    } else {
-        stick.x_raw = stick.x_center; // Default to center if not configured
-    }
-
-    // Read Y-axis raw value if channel is valid
-    if (stick.y_channel >= 0) {
-        stick.y_raw = readMuxChannel(stick.y_channel);
-    } else {
-        stick.y_raw = stick.y_center; // Default to center if not configured
-    }
-
-    // Apply deadzone and scaling to get processed float values (0.0 to 1.0)
-    applyStickDeadzoneAndScale(stick);
-}
-
-void AnalogMuxInput::processTrigger(analog_mux_trigger_instance &trigger) {
-    // Read raw value if channel is valid
-    if (trigger.channel >= 0) {
-        trigger.raw = readMuxChannel(trigger.channel);
-    } else {
-        trigger.raw = 0; // Default to 0 if not configured
-    }
-
-    // Apply deadzone and scaling to get processed float value (0.0 to 1.0)
-    applyTriggerDeadzoneAndScale(trigger);
-}
-
-uint16_t AnalogMuxInput::readMuxChannel(uint8_t channel) {
-    if (!is_initialized) return ADC_CENTER_DEFAULT; // Return center if not setup
-
-    selectMuxChannel(channel);          // Set the MUX to the desired channel
-    adc_select_input(mux_adc_channel); // Select the ADC input connected to the MUX output
-    return adc_read();                  // Perform ADC conversion and return result (0-4095)
-}
-
 
 void AnalogMuxInput::applyStickDeadzoneAndScale(analog_mux_stick_instance &stick) {
-    // 1. Map raw ADC values (0-4095) to a float range around 0.0 (-0.5 to +0.5)
-    //    relative to the calibrated center.
-    //    Note: This assumes center is roughly ADC_MAX/2. More complex mapping
-    //    might be needed if the center is significantly skewed.
     float dx = 0.0f;
-    if (stick.x_raw > stick.x_center) {
-        dx = (float)(stick.x_raw - stick.x_center) / (ADC_MAX - stick.x_center); // 0 to 1 range
-    } else if (stick.x_raw < stick.x_center) {
-        dx = (float)(stick.x_raw - stick.x_center) / stick.x_center; // -1 to 0 range
-    } // else dx remains 0.0 if raw == center
-
     float dy = 0.0f;
-     if (stick.y_raw > stick.y_center) {
-        dy = (float)(stick.y_raw - stick.y_center) / (ADC_MAX - stick.y_center); // 0 to 1 range
-    } else if (stick.y_raw < stick.y_center) {
-        dy = (float)(stick.y_raw - stick.y_center) / stick.y_center; // -1 to 0 range
-    } // else dy remains 0.0 if raw == center
 
-    // dx and dy are now roughly in the range -1.0 to +1.0
+    // Use the outer deadzone setting to define the 'usable' electrical range.
+    // This compresses the effective range to prevent hitting 1.0 too early.
+    float outer_deadzone_percent = DEFAULT_OUTER_DEADZONE / 100.0f;
+    float effective_max = ADC_MAX_FLOAT * (1.0f - outer_deadzone_percent);
+    float effective_min = ADC_MAX_FLOAT * outer_deadzone_percent;
 
-    // 2. Calculate magnitude (distance from center, scaled relative to max radius 1.0)
-    //    We scale dx/dy by 0.5 because they represent the full range (-1 to 1),
-    //    but we want magnitude relative to a center of 0.0 and max radius of 0.5
-    //    in this coordinate system before applying deadzone.
-    float magnitude = sqrtf( (dx * dx) + (dy * dy) ) * ANALOG_CENTER_FLOAT; // Magnitude now 0.0 to ~0.707 (or higher if not circular)
 
-    // 3. Apply radial deadzone
-    if (magnitude < stick_inner_deadzone_scaled) {
-        // Inside deadzone, snap to center
-        stick.x_value = ANALOG_CENTER_FLOAT;
-        stick.y_value = ANALOG_CENTER_FLOAT;
-    } else {
-        // Outside deadzone, calculate scaling factor
-        // Rescale magnitude from (inner_deadzone..outer_deadzone) to (0..0.5)
-        float scale = (magnitude - stick_inner_deadzone_scaled) / (stick_outer_deadzone_scaled - stick_inner_deadzone_scaled);
-        scale = std::max(0.0f, std::min(scale, ANALOG_CENTER_FLOAT)); // Clamp scale 0.0 to 0.5
+    // --- X-Axis Calculation ---
+    int16_t raw_x_deflection = stick.x_raw - stick.x_center;
 
-        // Apply scaling to the original direction vector (dx, dy)
-        // Need to normalize the direction vector (dx, dy) before scaling by 'scale'
-        float norm_magnitude = sqrtf(dx*dx + dy*dy); // Original magnitude in -1..1 space
-        if (norm_magnitude < 1e-6f) norm_magnitude = 1e-6f; // Avoid division by zero
-
-        float scaled_dx = (dx / norm_magnitude) * scale;
-        float scaled_dy = (dy / norm_magnitude) * scale;
-
-        // Convert back to 0.0 to 1.0 range centered at 0.5
-        stick.x_value = ANALOG_CENTER_FLOAT + scaled_dx;
-        stick.y_value = ANALOG_CENTER_FLOAT + scaled_dy;
+    if (raw_x_deflection > 0) {
+        // Normalize by the distance from center to the effective maximum
+        float positive_range = effective_max - stick.x_center;
+        if (positive_range < 1.0f) positive_range = 1.0f; // Avoid division by small/zero numbers
+        dx = (float)raw_x_deflection / positive_range;
+    } else if (raw_x_deflection < 0) {
+        // Normalize by the distance from center to the effective minimum
+        float negative_range = stick.x_center - effective_min;
+        if (negative_range < 1.0f) negative_range = 1.0f;
+        dx = (float)raw_x_deflection / negative_range;
     }
 
-    // 4. Apply inversion if necessary (invert around the center 0.5)
+    // --- Y-Axis Calculation ---
+    int16_t raw_y_deflection = stick.y_raw - stick.y_center;
+
+    if (raw_y_deflection > 0) {
+        float positive_range = effective_max - stick.y_center;
+        if (positive_range < 1.0f) positive_range = 1.0f;
+        dy = (float)raw_y_deflection / positive_range;
+    } else if (raw_y_deflection < 0) {
+        float negative_range = stick.y_center - effective_min;
+        if (negative_range < 1.0f) negative_range = 1.0f;
+        dy = (float)raw_y_deflection / negative_range;
+    }
+    
+    // --- Final Processing ---
+
+    // Clamp the values. Any movement beyond the 'effective' range will be clamped to 1.0 or -1.0.
+    dx = std::max(-1.0f, std::min(dx, 1.0f));
+    dy = std::max(-1.0f, std::min(dy, 1.0f));
+
+    // Apply inner deadzone and rescale
+    float inner_deadzone = DEFAULT_INNER_DEADZONE / 100.0f;
+    float inner_range = 1.0f - inner_deadzone;
+    if (inner_range < 1e-6f) inner_range = 1.0f;
+
+    if (std::abs(dx) < inner_deadzone) {
+        dx = 0.0f;
+    } else {
+        dx = ((dx > 0) ? 1.0f : -1.0f) * (std::abs(dx) - inner_deadzone) / inner_range;
+    }
+
+    if (std::abs(dy) < inner_deadzone) {
+        dy = 0.0f;
+    } else {
+        dy = ((dy > 0) ? 1.0f : -1.0f) * (std::abs(dy) - inner_deadzone) / inner_range;
+    }
+
+    // Convert to 0.0 to 1.0 range for gamepad output
+    stick.x_value = (dx + 1.0f) / 2.0f;
+    stick.y_value = (dy + 1.0f) / 2.0f;
+
+    // Apply inversion if necessary
     if (stick.analog_invert == InvertMode::INVERT_X || stick.analog_invert == InvertMode::INVERT_XY) {
         stick.x_value = ANALOG_MAX_FLOAT - stick.x_value;
     }
     if (stick.analog_invert == InvertMode::INVERT_Y || stick.analog_invert == InvertMode::INVERT_XY) {
         stick.y_value = ANALOG_MAX_FLOAT - stick.y_value;
     }
-
-    // 5. Final clamp to ensure values are strictly within 0.0 to 1.0
-    stick.x_value = std::max(ANALOG_MIN_FLOAT, std::min(stick.x_value, ANALOG_MAX_FLOAT));
-    stick.y_value = std::max(ANALOG_MIN_FLOAT, std::min(stick.y_value, ANALOG_MAX_FLOAT));
 }
 
 
@@ -351,4 +338,12 @@ void AnalogMuxInput::selectMuxChannel(uint8_t channel) {
     for (int i = 0; i < mux_select_pin_count; ++i) {
         gpio_put(mux_select_pins[i], (channel >> i) & 1);
     }
+}
+
+uint16_t AnalogMuxInput::readMuxChannel(uint8_t channel) {
+    selectMuxChannel(channel); 
+    sleep_us(5);
+    adc_select_input(mux_adc_channel);
+    sleep_us(10);
+    return adc_read(); 
 }

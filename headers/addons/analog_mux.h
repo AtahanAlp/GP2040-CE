@@ -53,6 +53,9 @@
 #ifndef ANALOG_MUX_RT_CHANNEL
 #define ANALOG_MUX_RT_CHANNEL 5 // Right Trigger
 #endif
+#ifndef ANALOG_MUX_WHEEL_CHANNEL
+#define ANALOG_MUX_WHEEL_CHANNEL 6 // Wheel
+#endif
 
 // ----- Left Stick Configuration -----
 
@@ -90,6 +93,14 @@
 #define DEFAULT_TRIGGER_DEADZONE_MAX 4000 // Raw value above this is considered max pressure
 #endif
 
+// Deadzone settings for Wheel (percentage)
+#ifndef DEFAULT_WHEEL_DEADZONE_MIN
+#define DEFAULT_WHEEL_INNER_DEADZONE 2 // Inner deadzone percentage
+#endif
+#ifndef DEFAULT_WHEEL_DEADZONE_MAX
+#define DEFAULT_WHEEL_OUTER_DEADZONE 5 // Outer deadzone percentage
+#endif
+
 // Analog Mux Module Name
 #define AnalogMuxName "AnalogMux"
 
@@ -120,6 +131,14 @@ typedef struct {
 } analog_mux_trigger_instance;
 
 
+// Structure to hold data for wheel input
+typedef struct {
+    int8_t channel;             // MUX channel for Wheel (-1 if unused)
+    float value;                // Processed Wheel value (-1.0 to 1.0) - *Will be mapped to 0-65535 later*
+    uint16_t raw;               // Last raw ADC reading (0-4095)
+    uint16_t center;            // Assumed center for Wheel (raw ADC, e.g., 2048) - *Can be refined later*
+} analog_mux_wheel_instance;
+
 class AnalogMuxInput : public GPAddon {
 public:
     virtual bool available(); // Check if the addon is configured correctly
@@ -149,6 +168,7 @@ private:
     // Basic scaling and deadzone application
     void applyStickDeadzoneAndScale(analog_mux_stick_instance &stick);
     void applyTriggerDeadzoneAndScale(analog_mux_trigger_instance &trigger);
+    void applyWheelDeadzoneAndScale(analog_mux_wheel_instance &wheel);
 
     // Member Variables
     uint16_t channel_values[16];  // Array to store the latest reading for each channel
@@ -160,6 +180,7 @@ private:
     // Data storage for inputs
     analog_mux_stick_instance sticks[ANALOG_MUX_JOYSTICK_COUNT];
     analog_mux_trigger_instance triggers[ANALOG_MUX_TRIGGER_COUNT];
+    analog_mux_wheel_instance wheel;
 
     // Basic configuration values loaded during setup
     float stick_inner_deadzone_scaled; // Store as 0.0 to 1.0 range internally

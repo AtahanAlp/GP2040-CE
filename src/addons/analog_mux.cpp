@@ -11,7 +11,7 @@
 #define ADC_MAX ((1 << 12) - 1)       // Max value for RP2040 ADC (4095)
 #define ADC_PIN_OFFSET 26             // GPIO pins for ADC start at 26
 #define ADC_MAX_FLOAT (float)ADC_MAX  // Float version of ADC_MAX
-#define ADC_CENTER_DEFAULT (ADC_MAX / 2 + 1) // Default center value (2048)
+#define ADC_CENTER_DEFAULT (ADC_MAX / 2 + 1) // Default center value for ADC (2048)
 #define ADC_COUNT_FOR_MUX 4                   // Number of ADC channels (0-3)
 
 #define ANALOG_MAX_FLOAT 1.0f
@@ -47,7 +47,7 @@ void AnalogMuxInput::setup() {
 }
 
 void AnalogMuxInput::calibrateSticks() {
-    sleep_us(100);
+    sleep_us(10);
     for (int i = 0; i < ANALOG_MUX_JOYSTICK_COUNT; ++i) {
         if (sticks[i].x_channel >= 0) {
             sticks[i].x_center = readMuxChannel(sticks[i].x_channel);
@@ -110,6 +110,11 @@ void AnalogMuxInput::loadConfig() {
     triggers[1].deadzone_min = DEFAULT_TRIGGER_DEADZONE_MIN;
     triggers[1].deadzone_max = DEFAULT_TRIGGER_DEADZONE_MAX;
     triggers[1].value = ANALOG_MIN_FLOAT; // Initialize processed value to min
+
+    // Configure Wheel (Index 0)
+    wheel.channel = ANALOG_MUX_WHEEL_CHANNEL;
+    wheel.center = ADC_CENTER_DEFAULT; // Use default center for now
+    wheel.value = ANALOG_CENTER_FLOAT; // Initialize processed value to center
 
     // Scale joystick deadzones from percentage to 0.0-0.5 range (relative to center)
     stick_inner_deadzone_scaled = (DEFAULT_INNER_DEADZONE / 100.0f) * ANALOG_CENTER_FLOAT;
@@ -186,8 +191,28 @@ void AnalogMuxInput::process() {
         // DPAD_MODE_DIGITAL is not handled here, assumes analog output
     }
 
+    // Process Wheel
+    if (wheel.channel >= 0) {
+        wheel.raw = channel_values[wheel.channel];
+        applyWheelDeadzoneAndScale(wheel); // apply custom deadzone/scaling
+
+        // Map processed float value (0.0 to 1.0) to gamepad uint16_t range (0 to 65535)
+        uint16_t mapped_wheel = static_cast<uint16_t>(wheel.value * 65535.0f);
+
+        // Assign wheel value to gamepad->state.lx only if it is further from the middle than the joystick value
+        uint16_t joystick_x = ADC_CENTER_DEFAULT; // Default to center value
+        if (sticks[0].analog_dpad == DpadMode::DPAD_MODE_LEFT_ANALOG) {
+            joystick_x = static_cast<uint16_t>(sticks[0].x_value * 65535.0f);
+        } else if (sticks[1].analog_dpad == DpadMode::DPAD_MODE_LEFT_ANALOG) {
+           joystick_x = static_cast<uint16_t>(sticks[1].x_value * 65535.0f);
+        }
+
+        if (std::abs(mapped_wheel - 32768) > std::abs(joystick_x - 32768)) {
+            gamepad->state.lx = mapped_wheel;
+        }
+    }
+
     // Process Triggers
-    // Enable analog triggers as per documentation
     gamepad->hasAnalogTriggers = true;
     for (int i = 0; i < ANALOG_MUX_TRIGGER_COUNT; ++i) {
         if (triggers[i].channel >= 0) triggers[i].raw = channel_values[triggers[i].channel];
@@ -208,77 +233,28 @@ void AnalogMuxInput::process() {
 
 
 void AnalogMuxInput::applyStickDeadzoneAndScale(analog_mux_stick_instance &stick) {
-    float dx = 0.0f;
-    float dy = 0.0f;
+    // Calculate raw deflection from center
+    float dx = (float)(stick.x_raw - stick.x_center) / ADC_MAX_FLOAT;
+    float dy = (float)(stick.y_raw - stick.y_center) / ADC_MAX_FLOAT;
 
-    // Use the outer deadzone setting to define the 'usable' electrical range.
-    // This compresses the effective range to prevent hitting 1.0 too early.
-    float outer_deadzone_percent = DEFAULT_OUTER_DEADZONE / 100.0f;
-    float effective_max = ADC_MAX_FLOAT * (1.0f - outer_deadzone_percent);
-    float effective_min = ADC_MAX_FLOAT * outer_deadzone_percent;
+    // Calculate magnitude and apply deadzone
+    float magnitude = std::sqrt(dx * dx + dy * dy);
 
-
-    // --- X-Axis Calculation ---
-    int16_t raw_x_deflection = stick.x_raw - stick.x_center;
-
-    if (raw_x_deflection > 0) {
-        // Normalize by the distance from center to the effective maximum
-        float positive_range = effective_max - stick.x_center;
-        if (positive_range < 1.0f) positive_range = 1.0f; // Avoid division by small/zero numbers
-        dx = (float)raw_x_deflection / positive_range;
-    } else if (raw_x_deflection < 0) {
-        // Normalize by the distance from center to the effective minimum
-        float negative_range = stick.x_center - effective_min;
-        if (negative_range < 1.0f) negative_range = 1.0f;
-        dx = (float)raw_x_deflection / negative_range;
-    }
-
-    // --- Y-Axis Calculation ---
-    int16_t raw_y_deflection = stick.y_raw - stick.y_center;
-
-    if (raw_y_deflection > 0) {
-        float positive_range = effective_max - stick.y_center;
-        if (positive_range < 1.0f) positive_range = 1.0f;
-        dy = (float)raw_y_deflection / positive_range;
-    } else if (raw_y_deflection < 0) {
-        float negative_range = stick.y_center - effective_min;
-        if (negative_range < 1.0f) negative_range = 1.0f;
-        dy = (float)raw_y_deflection / negative_range;
-    }
-    
-    // --- Final Processing ---
-
-    // Clamp the values. Any movement beyond the 'effective' range will be clamped to 1.0 or -1.0.
-    dx = std::max(-1.0f, std::min(dx, 1.0f));
-    dy = std::max(-1.0f, std::min(dy, 1.0f));
-
-    // Apply inner deadzone and rescale
-    float inner_deadzone = DEFAULT_INNER_DEADZONE / 100.0f;
-    float inner_range = 1.0f - inner_deadzone;
-    if (inner_range < 1e-6f) inner_range = 1.0f;
-
-    if (std::abs(dx) < inner_deadzone) {
-        dx = 0.0f;
+    if (magnitude < stick_inner_deadzone_scaled) {
+        // Inside inner deadzone, reset to center
+        stick.x_value = ANALOG_CENTER_FLOAT;
+        stick.y_value = ANALOG_CENTER_FLOAT;
     } else {
-        dx = ((dx > 0) ? 1.0f : -1.0f) * (std::abs(dx) - inner_deadzone) / inner_range;
-    }
+        // Apply radial deadzone scaling
+        float scaling_factor = (magnitude - stick_inner_deadzone_scaled) / (stick_outer_deadzone_scaled - stick_inner_deadzone_scaled);
+        scaling_factor = std::clamp(scaling_factor, 0.0f, 1.0f);
 
-    if (std::abs(dy) < inner_deadzone) {
-        dy = 0.0f;
-    } else {
-        dy = ((dy > 0) ? 1.0f : -1.0f) * (std::abs(dy) - inner_deadzone) / inner_range;
-    }
+        dx = (dx / magnitude) * scaling_factor;
+        dy = (dy / magnitude) * scaling_factor;
 
-    // Convert to 0.0 to 1.0 range for gamepad output
-    stick.x_value = (dx + 1.0f) / 2.0f;
-    stick.y_value = (dy + 1.0f) / 2.0f;
-
-    // Apply inversion if necessary
-    if (stick.analog_invert == InvertMode::INVERT_X || stick.analog_invert == InvertMode::INVERT_XY) {
-        stick.x_value = ANALOG_MAX_FLOAT - stick.x_value;
-    }
-    if (stick.analog_invert == InvertMode::INVERT_Y || stick.analog_invert == InvertMode::INVERT_XY) {
-        stick.y_value = ANALOG_MAX_FLOAT - stick.y_value;
+        // Convert to 0.0 to 1.0 range for gamepad output
+        stick.x_value = (dx + 1.0f) / 2.0f;
+        stick.y_value = (dy + 1.0f) / 2.0f;
     }
 }
 
@@ -303,6 +279,41 @@ void AnalogMuxInput::applyTriggerDeadzoneAndScale(analog_mux_trigger_instance &t
     trigger.value = std::max(0.0f, std::min(trigger.value, 1.0f));
 }
 
+void AnalogMuxInput::applyWheelDeadzoneAndScale(analog_mux_wheel_instance &wheel) {
+    float dx = 0.0f;
+    int16_t raw_deflection = wheel.raw - wheel.center;
+
+    if (raw_deflection > 0) {
+        float positive_range = ADC_MAX_FLOAT - wheel.center;
+        if (positive_range < 1.0f) positive_range = 1.0f; // Prevent division by zero
+        dx = (float)raw_deflection / positive_range;
+    } else if (raw_deflection < 0) {
+        float negative_range = (float)wheel.center;
+        if (negative_range < 1.0f) negative_range = 1.0f;
+        dx = (float)raw_deflection / negative_range;
+    }
+
+    // Clamp to ensure dx is strictly within [-1.0, 1.0]
+    dx = std::clamp(dx, -1.0f, 1.0f);
+
+    float inner_deadzone = DEFAULT_WHEEL_INNER_DEADZONE / 100.0f;
+    float outer_deadzone_threshold = 1.0f - (DEFAULT_WHEEL_OUTER_DEADZONE / 100.0f);
+
+    float abs_dx = std::abs(dx);
+
+    if (abs_dx < inner_deadzone) {
+        dx = 0.0f;
+    } else if (abs_dx > outer_deadzone_threshold) {
+        dx = (dx > 0) ? 1.0f : -1.0f;
+    } else {
+        float rescaled_abs_dx = (abs_dx - inner_deadzone) / (outer_deadzone_threshold - inner_deadzone);
+        
+        dx = (dx > 0) ? rescaled_abs_dx : -rescaled_abs_dx;
+    }
+
+    wheel.value = (dx + 1.0f) / 2.0f;
+}
+
 
 void AnalogMuxInput::readAllMuxChannels() {
     // Select the ADC input pin ONCE at the start
@@ -312,12 +323,12 @@ void AnalogMuxInput::readAllMuxChannels() {
     for (int i = 0; i < ANALOG_MUX_JOYSTICK_COUNT; ++i) {
         if (sticks[i].x_channel >= 0) {
             selectMuxChannel(sticks[i].x_channel);
-            sleep_us(10); // Crucial delay for settling
+            sleep_us(10); // Increased delay for stabilization
             channel_values[sticks[i].x_channel] = adc_read();
         }
         if (sticks[i].y_channel >= 0) {
             selectMuxChannel(sticks[i].y_channel);
-            sleep_us(10); // Crucial delay for settling
+            sleep_us(10); // Increased delay for stabilization
             channel_values[sticks[i].y_channel] = adc_read();
         }
     }
@@ -326,9 +337,16 @@ void AnalogMuxInput::readAllMuxChannels() {
     for (int i = 0; i < ANALOG_MUX_TRIGGER_COUNT; ++i) {
         if (triggers[i].channel >= 0) {
             selectMuxChannel(triggers[i].channel);
-            sleep_us(10); // Crucial delay for settling
+            sleep_us(10); // Increased delay for stabilization
             channel_values[triggers[i].channel] = adc_read();
         }
+    }
+
+    // Read wheel channel
+    if (wheel.channel >= 0) {
+        selectMuxChannel(wheel.channel);
+        sleep_us(10); // Increased delay for stabilization
+        channel_values[wheel.channel] = adc_read();
     }
 }
 

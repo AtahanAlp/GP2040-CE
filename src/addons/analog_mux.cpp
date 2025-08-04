@@ -52,7 +52,6 @@ void AnalogMuxInput::calibrateSticks() {
         if (sticks[i].x_channel >= 0) {
             sticks[i].x_center = readMuxChannel(sticks[i].x_channel);
         }
-        sleep_us(10);
         if (sticks[i].y_channel >= 0) {
             sticks[i].y_center = readMuxChannel(sticks[i].y_channel);
         }
@@ -84,6 +83,8 @@ void AnalogMuxInput::loadConfig() {
     sticks[0].y_channel = ANALOG_MUX_LY_CHANNEL;
     sticks[0].analog_dpad = ANALOG_MUX_L_MODE;
     sticks[0].analog_invert = ANALOG_MUX_L_INVERT;
+    sticks[0].x_invert = ANALOG_MUX_LX_INVERT;
+    sticks[0].y_invert = ANALOG_MUX_LY_INVERT;
     sticks[0].x_center = ADC_CENTER_DEFAULT; // Use default center for now
     sticks[0].y_center = ADC_CENTER_DEFAULT; // Use default center for now
     sticks[0].x_value = ANALOG_CENTER_FLOAT; // Initialize processed value to center
@@ -94,6 +95,8 @@ void AnalogMuxInput::loadConfig() {
     sticks[1].y_channel = ANALOG_MUX_RY_CHANNEL;
     sticks[1].analog_dpad = ANALOG_MUX_R_MODE;
     sticks[1].analog_invert = ANALOG_MUX_R_INVERT;
+    sticks[1].x_invert = ANALOG_MUX_RX_INVERT;
+    sticks[1].y_invert = ANALOG_MUX_RY_INVERT;
     sticks[1].x_center = ADC_CENTER_DEFAULT; // Use default center for now
     sticks[1].y_center = ADC_CENTER_DEFAULT; // Use default center for now
     sticks[1].x_value = ANALOG_CENTER_FLOAT; // Initialize processed value to center
@@ -103,17 +106,20 @@ void AnalogMuxInput::loadConfig() {
     triggers[0].channel = ANALOG_MUX_LT_CHANNEL;
     triggers[0].deadzone_min = DEFAULT_TRIGGER_DEADZONE_MIN;
     triggers[0].deadzone_max = DEFAULT_TRIGGER_DEADZONE_MAX;
+    triggers[0].invert = ANALOG_MUX_LT_INVERT;
     triggers[0].value = ANALOG_MIN_FLOAT; // Initialize processed value to min
 
     // Configure Right Trigger (Index 1)
     triggers[1].channel = ANALOG_MUX_RT_CHANNEL;
     triggers[1].deadzone_min = DEFAULT_TRIGGER_DEADZONE_MIN;
     triggers[1].deadzone_max = DEFAULT_TRIGGER_DEADZONE_MAX;
+    triggers[1].invert = ANALOG_MUX_RT_INVERT;
     triggers[1].value = ANALOG_MIN_FLOAT; // Initialize processed value to min
 
     // Configure Wheel (Index 0)
     wheel.channel = ANALOG_MUX_WHEEL_CHANNEL;
     wheel.center = ADC_CENTER_DEFAULT; // Use default center for now
+    wheel.invert = ANALOG_MUX_WHEEL_INVERT;
     wheel.value = ANALOG_CENTER_FLOAT; // Initialize processed value to center
 
     // Scale joystick deadzones from percentage to 0.0-0.5 range (relative to center)
@@ -237,6 +243,19 @@ void AnalogMuxInput::applyStickDeadzoneAndScale(analog_mux_stick_instance &stick
     float dx = (float)(stick.x_raw - stick.x_center) / ADC_MAX_FLOAT;
     float dy = (float)(stick.y_raw - stick.y_center) / ADC_MAX_FLOAT;
 
+    // Apply individual axis inversion first (before deadzone processing)
+    if (stick.x_invert || 
+        stick.analog_invert == InvertMode::INVERT_X || 
+        stick.analog_invert == InvertMode::INVERT_XY) {
+        dx = -dx;
+    }
+    
+    if (stick.y_invert || 
+        stick.analog_invert == InvertMode::INVERT_Y || 
+        stick.analog_invert == InvertMode::INVERT_XY) {
+        dy = -dy;
+    }
+
     // Calculate magnitude and apply deadzone
     float magnitude = std::sqrt(dx * dx + dy * dy);
 
@@ -260,19 +279,26 @@ void AnalogMuxInput::applyStickDeadzoneAndScale(analog_mux_stick_instance &stick
 
 
 void AnalogMuxInput::applyTriggerDeadzoneAndScale(analog_mux_trigger_instance &trigger) {
+    uint16_t raw_value = trigger.raw;
+    
+    // Apply inversion if enabled (invert the raw reading)
+    if (trigger.invert) {
+        raw_value = ADC_MAX - raw_value;
+    }
+    
     // Ensure min/max are valid
     uint16_t min_dead = std::min(trigger.deadzone_min, trigger.deadzone_max);
     uint16_t max_dead = std::max(trigger.deadzone_min, trigger.deadzone_max);
     uint16_t range = (max_dead > min_dead) ? (max_dead - min_dead) : 1; // Avoid division by zero
 
     // Apply deadzone and scale
-    if (trigger.raw <= min_dead) {
+    if (raw_value <= min_dead) {
         trigger.value = 0.0f;
-    } else if (trigger.raw >= max_dead) {
+    } else if (raw_value >= max_dead) {
         trigger.value = 1.0f;
     } else {
         // Linearly scale between min and max deadzone
-        trigger.value = (float)(trigger.raw - min_dead) / range;
+        trigger.value = (float)(raw_value - min_dead) / range;
     }
 
     // Final clamp (should be redundant if logic above is correct, but safe)
@@ -291,6 +317,11 @@ void AnalogMuxInput::applyWheelDeadzoneAndScale(analog_mux_wheel_instance &wheel
         float negative_range = (float)wheel.center;
         if (negative_range < 1.0f) negative_range = 1.0f;
         dx = (float)raw_deflection / negative_range;
+    }
+
+    // Apply inversion if enabled
+    if (wheel.invert) {
+        dx = -dx;
     }
 
     // Clamp to ensure dx is strictly within [-1.0, 1.0]

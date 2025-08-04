@@ -65,6 +65,14 @@
 #ifndef ANALOG_MUX_L_INVERT
 #define ANALOG_MUX_L_INVERT INVERT_NONE
 #endif
+// Individual axis inversion for left stick
+// When enabled (1), the respective axis movement is inverted
+#ifndef ANALOG_MUX_LX_INVERT
+#define ANALOG_MUX_LX_INVERT 0 // 0 = normal, 1 = inverted
+#endif
+#ifndef ANALOG_MUX_LY_INVERT
+#define ANALOG_MUX_LY_INVERT 0 // 0 = normal, 1 = inverted
+#endif
 
 // ----- Right Stick Configuration -----
 
@@ -73,6 +81,14 @@
 #endif
 #ifndef ANALOG_MUX_R_INVERT
 #define ANALOG_MUX_R_INVERT INVERT_NONE
+#endif
+// Individual axis inversion for right stick
+// When enabled (1), the respective axis movement is inverted
+#ifndef ANALOG_MUX_RX_INVERT
+#define ANALOG_MUX_RX_INVERT 0 // 0 = normal, 1 = inverted
+#endif
+#ifndef ANALOG_MUX_RY_INVERT
+#define ANALOG_MUX_RY_INVERT 0 // 0 = normal, 1 = inverted
 #endif
 
 // ----- Basic Analog Settings -----
@@ -101,6 +117,23 @@
 #define DEFAULT_WHEEL_OUTER_DEADZONE 5 // Outer deadzone percentage
 #endif
 
+// ----- Trigger and Wheel Inversion -----
+
+// Individual trigger inversion
+// When enabled (1), trigger values are inverted: min becomes max, max becomes min
+#ifndef ANALOG_MUX_LT_INVERT
+#define ANALOG_MUX_LT_INVERT 0 // 0 = normal, 1 = inverted
+#endif
+#ifndef ANALOG_MUX_RT_INVERT
+#define ANALOG_MUX_RT_INVERT 0 // 0 = normal, 1 = inverted
+#endif
+
+// Wheel inversion
+// When enabled (1), wheel rotation direction is inverted
+#ifndef ANALOG_MUX_WHEEL_INVERT
+#define ANALOG_MUX_WHEEL_INVERT 0 // 0 = normal, 1 = inverted
+#endif
+
 // Analog Mux Module Name
 #define AnalogMuxName "AnalogMux"
 
@@ -117,8 +150,10 @@ typedef struct {
     uint16_t y_raw;             // Last raw ADC reading for Y (0-4095)
     uint16_t x_center;          // Assumed center for X (raw ADC, e.g., 2048) - *Can be refined later*
     uint16_t y_center;          // Assumed center for Y (raw ADC, e.g., 2048) - *Can be refined later*
-    InvertMode analog_invert;   // Inversion setting for this stick
+    InvertMode analog_invert;   // Inversion setting for this stick (legacy compatibility)
     DpadMode analog_dpad;       // Dpad emulation mode for this stick
+    bool x_invert;              // Individual X-axis inversion flag
+    bool y_invert;              // Individual Y-axis inversion flag
 } analog_mux_stick_instance;
 
 // Structure to hold data for a single trigger
@@ -128,6 +163,7 @@ typedef struct {
     uint16_t raw;               // Last raw ADC reading (0-4095)
     uint16_t deadzone_min;      // Minimum raw value considered active
     uint16_t deadzone_max;      // Maximum raw value for full activation
+    bool invert;                // Inversion flag for this trigger
 } analog_mux_trigger_instance;
 
 
@@ -137,6 +173,7 @@ typedef struct {
     float value;                // Processed Wheel value (-1.0 to 1.0) - *Will be mapped to 0-65535 later*
     uint16_t raw;               // Last raw ADC reading (0-4095)
     uint16_t center;            // Assumed center for Wheel (raw ADC, e.g., 2048) - *Can be refined later*
+    bool invert;                // Inversion flag for wheel
 } analog_mux_wheel_instance;
 
 class AnalogMuxInput : public GPAddon {
